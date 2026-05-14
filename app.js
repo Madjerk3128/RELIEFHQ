@@ -1,13 +1,17 @@
 // Data
 var DB={resources:[],camps:[],requests:[],allocations:[],volunteers:[],donors:[],donations:[],users:[],counters:{r:0,c:0,q:0,a:0,v:0,d:0,n:0,u:0}};
-var currentUser=null,loginMode='',GITHUB_DB='https://madjerk3128.github.io/RELIEFHQ/db.json';
-function save(){localStorage.setItem('reliefDB',JSON.stringify(DB));}
+var currentUser=null,loginMode='',CLOUD_DB='https://jsonblob.com/api/jsonBlob/019e27ec-bda3-73a3-a0a6-17e16cf2a660';
+function save(){
+  localStorage.setItem('reliefDB',JSON.stringify(DB));
+  fetch(CLOUD_DB,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(DB)}).catch(function(){});
+}
 function load(){
-  var local=localStorage.getItem('reliefDB');
-  if(local){DB=JSON.parse(local);return;}
-  fetch(GITHUB_DB+'?t='+Date.now()).then(function(r){return r.json();}).then(function(d){
-    if(d&&typeof d==='object'){DB=d;save();}
-  }).catch(function(){});
+  fetch(CLOUD_DB).then(function(r){return r.json();}).then(function(d){
+    if(d&&typeof d==='object'&&d.counters){DB=d;localStorage.setItem('reliefDB',JSON.stringify(DB));}
+  }).catch(function(){
+    var local=localStorage.getItem('reliefDB');
+    if(local){DB=JSON.parse(local);}
+  });
 }
 load();
 
