@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Disaster Relief Resource Coordinator - Manage resources, camps, volunteers and relief operations efficiently">
+  <title>Disaster Relief Resource Coordinator</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- LOGIN SCREEN -->
+    <div id="login-screen" class="screen active">
+      <div class="login-bg">
+        <div class="floating-orb orb1"></div>
+        <div class="floating-orb orb2"></div>
+        <div class="floating-orb orb3"></div>
+      </div>
+      <div class="login-container">
+        <div class="login-logo">
+          <div class="logo-icon">🛡️</div>
+          <h1>RELIEF<span>HQ</span></h1>
+          <p class="tagline">Saving Lives Through Smart Logistics</p>
+        </div>
+        <div class="login-cards">
+          <div class="login-card admin-card" onclick="showLoginForm('admin')">
+            <div class="card-icon">⚙️</div>
+            <h3>Admin Portal</h3>
+            <p>Full system control</p>
+          </div>
+          <div class="login-card user-card" onclick="showLoginForm('user')">
+            <div class="card-icon">👤</div>
+            <h3>User Login</h3>
+            <p>Submit & track requests</p>
+          </div>
+          <div class="login-card register-card" onclick="showLoginForm('register')">
+            <div class="card-icon">📝</div>
+            <h3>Register</h3>
+            <p>New user sign up</p>
+          </div>
+        </div>
+        <div id="login-form" class="login-form hidden">
+          <h2 id="login-title">Admin Login</h2>
+          <div id="field-username" class="form-group">
+            <label>Username</label>
+            <input type="text" id="inp-username" placeholder="Enter username">
+          </div>
+          <div id="field-name" class="form-group hidden">
+            <label>Full Name</label>
+            <input type="text" id="inp-name" placeholder="Your full name">
+          </div>
+          <div id="field-phone" class="form-group hidden">
+            <label>Phone</label>
+            <input type="text" id="inp-phone" placeholder="Phone number">
+          </div>
+          <div id="field-camp-select" class="form-group hidden">
+            <label>Select Camp</label>
+            <select id="inp-camp-select"><option value="">General (No Camp)</option></select>
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="inp-password" placeholder="Enter password">
+          </div>
+          <div id="field-userid" class="form-group hidden">
+            <label>User ID</label>
+            <input type="text" id="inp-userid" placeholder="e.g. USER1">
+          </div>
+          <button id="btn-login" class="btn-primary" onclick="handleLogin()">Login</button>
+          <button class="btn-ghost" onclick="hideLoginForm()">← Back</button>
+          <div id="login-error" class="error-msg hidden"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ADMIN DASHBOARD -->
+    <div id="admin-screen" class="screen">
+      <nav class="topbar">
+        <div class="topbar-left">
+          <span class="nav-logo">🛡️ ReliefHQ</span>
+          <span class="nav-role admin-badge">ADMIN</span>
+        </div>
+        <div class="topbar-right">
+          <span id="admin-time" class="nav-time"></span>
+          <button class="btn-logout" onclick="logout()">Logout</button>
+        </div>
+      </nav>
+      <div class="dashboard">
+        <aside class="sidebar">
+          <div class="sidebar-section">
+            <div class="sidebar-title">Resources</div>
+            <button class="sidebar-btn active" data-view="dashboard" onclick="adminNav(this)">📊 Dashboard</button>
+            <button class="sidebar-btn" data-view="resources" onclick="adminNav(this)">📦 Resources</button>
+            <button class="sidebar-btn" data-view="low-stock" onclick="adminNav(this)">⚠️ Low Stock</button>
+          </div>
+          <div class="sidebar-section">
+            <div class="sidebar-title">Camps</div>
+            <button class="sidebar-btn" data-view="camps" onclick="adminNav(this)">🏕️ Camps</button>
+          </div>
+          <div class="sidebar-section">
+            <div class="sidebar-title">Requests</div>
+            <button class="sidebar-btn" data-view="requests" onclick="adminNav(this)">📋 All Requests</button>
+            <button class="sidebar-btn" data-view="pending" onclick="adminNav(this)">🔔 Pending</button>
+          </div>
+          <div class="sidebar-section">
+            <div class="sidebar-title">Allocations</div>
+            <button class="sidebar-btn" data-view="allocations" onclick="adminNav(this)">🚚 History</button>
+          </div>
+          <div class="sidebar-section">
+            <div class="sidebar-title">People</div>
+            <button class="sidebar-btn" data-view="volunteers" onclick="adminNav(this)">🙋 Volunteers</button>
+            <button class="sidebar-btn" data-view="donors" onclick="adminNav(this)">💝 Donors</button>
+            <button class="sidebar-btn" data-view="users" onclick="adminNav(this)">👥 Users</button>
+          </div>
+        </aside>
+        <main class="main-content" id="admin-main">
+          <!-- Dynamic content rendered here -->
+        </main>
+      </div>
+    </div>
+
+    <!-- USER DASHBOARD -->
+    <div id="user-screen" class="screen">
+      <nav class="topbar user-topbar">
+        <div class="topbar-left">
+          <span class="nav-logo">🛡️ ReliefHQ</span>
+          <span class="nav-role user-badge">USER</span>
+          <span id="user-name-display" class="nav-username"></span>
+        </div>
+        <div class="topbar-right">
+          <button class="btn-logout" onclick="logout()">Logout</button>
+        </div>
+      </nav>
+      <div class="dashboard">
+        <aside class="sidebar user-sidebar">
+          <div class="sidebar-section">
+            <button class="sidebar-btn active" data-view="user-home" onclick="userNav(this)">🏠 Home</button>
+            <button class="sidebar-btn" data-view="user-request" onclick="userNav(this)">📝 New Request</button>
+            <button class="sidebar-btn" data-view="user-my-requests" onclick="userNav(this)">📋 My Requests</button>
+            <button class="sidebar-btn" data-view="user-resources" onclick="userNav(this)">📦 Resources</button>
+            <button class="sidebar-btn" data-view="user-camps" onclick="userNav(this)">🏕️ Camps</button>
+          </div>
+        </aside>
+        <main class="main-content" id="user-main">
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL -->
+  <div id="modal-overlay" class="modal-overlay hidden" onclick="closeModal()">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h2 id="modal-title"></h2>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div id="modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

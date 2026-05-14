@@ -1,0 +1,12 @@
+{
+  "name": "disaster-relief",
+  "version": "1.0.0",
+  "description": "Disaster Relief Resource Coordinator",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "localtunnel": "^2.0.2"
+  }
+}
