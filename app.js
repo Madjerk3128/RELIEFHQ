@@ -1,8 +1,14 @@
 // Data
 var DB={resources:[],camps:[],requests:[],allocations:[],volunteers:[],donors:[],donations:[],users:[],counters:{r:0,c:0,q:0,a:0,v:0,d:0,n:0,u:0}};
-var currentUser=null,loginMode='',API=location.origin+'/api/data';
-function save(){fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(DB)}).catch(function(){localStorage.setItem('reliefDB',JSON.stringify(DB));});}
-function load(){fetch(API).then(r=>r.json()).then(d=>{DB=d;}).catch(function(){var d=localStorage.getItem('reliefDB');if(d)DB=JSON.parse(d);});}
+var currentUser=null,loginMode='',GITHUB_DB='https://madjerk3128.github.io/RELIEFHQ/db.json';
+function save(){localStorage.setItem('reliefDB',JSON.stringify(DB));}
+function load(){
+  var local=localStorage.getItem('reliefDB');
+  if(local){DB=JSON.parse(local);return;}
+  fetch(GITHUB_DB+'?t='+Date.now()).then(function(r){return r.json();}).then(function(d){
+    if(d&&typeof d==='object'){DB=d;save();}
+  }).catch(function(){});
+}
 load();
 
 function showScreen(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
