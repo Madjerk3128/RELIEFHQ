@@ -1,42 +1,24 @@
-// Data
+// Data — Cloud-first sync via jsonblob.com
 var DB={resources:[],camps:[],requests:[],allocations:[],volunteers:[],donors:[],donations:[],users:[],counters:{r:0,c:0,q:0,a:0,v:0,d:0,n:0,u:0}};
 var currentUser=null,loginMode='',CLOUD_DB='https://jsonblob.com/api/jsonBlob/019e27ec-bda3-73a3-a0a6-17e16cf2a660';
-var _syncing=false;
+var _cloudReady=false;
 function save(){
   localStorage.setItem('reliefDB',JSON.stringify(DB));
-  if(_syncing)return;_syncing=true;
-  fetch(CLOUD_DB,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(DB)})
-  .then(function(){_syncing=false;})
-  .catch(function(){_syncing=false;setTimeout(function(){
-    fetch(CLOUD_DB,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(DB)}).catch(function(){});
-  },2000);});
+  fetch(CLOUD_DB,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(DB)}).catch(function(){
+    setTimeout(function(){fetch(CLOUD_DB,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(DB)}).catch(function(){});},3000);
+  });
 }
-function load(){
+function loadFromCloud(callback){
   fetch(CLOUD_DB).then(function(r){return r.json();}).then(function(d){
-    if(d&&typeof d==='object'&&d.counters){
-      DB=d;localStorage.setItem('reliefDB',JSON.stringify(DB));
-      var as=document.getElementById('admin-screen');
-      var us=document.getElementById('user-screen');
-      if(as&&as.classList.contains('active')){renderAdmin('dashboard');}
-      if(us&&us.classList.contains('active')&&currentUser){renderUser('user-home');}
-    }
+    if(d&&typeof d==='object'&&d.counters){DB=d;localStorage.setItem('reliefDB',JSON.stringify(DB));_cloudReady=true;}
+    if(callback)callback(true);
   }).catch(function(){
     var local=localStorage.getItem('reliefDB');
     if(local){DB=JSON.parse(local);}
+    if(callback)callback(false);
   });
 }
-load();
-setInterval(function(){
-  fetch(CLOUD_DB).then(function(r){return r.json();}).then(function(d){
-    if(d&&typeof d==='object'&&d.counters){
-      DB=d;localStorage.setItem('reliefDB',JSON.stringify(DB));
-      var as=document.getElementById('admin-screen');
-      var us=document.getElementById('user-screen');
-      if(as&&as.classList.contains('active')){renderAdmin('dashboard');}
-      if(us&&us.classList.contains('active')&&currentUser){renderUser('user-home');}
-    }
-  }).catch(function(){});
-},30000);
+function resetLocalData(){localStorage.removeItem('reliefDB');loadFromCloud(function(){toast('Data refreshed from cloud!','success');});}
 
 function showScreen(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
 function toast(msg,type){var t=document.getElementById('toast');t.className='toast '+(type||'success');t.textContent=msg;t.classList.remove('hidden');setTimeout(()=>t.classList.add('hidden'),2500);}
@@ -58,22 +40,28 @@ var err=document.getElementById('login-error');err.classList.add('hidden');
 var pw=document.getElementById('inp-password').value;
 if(loginMode==='admin'){
  if(document.getElementById('inp-username').value!=='admin'||pw!=='12345678'){err.textContent='Invalid credentials';err.classList.remove('hidden');return;}
- showScreen('admin-screen');renderAdmin('dashboard');
+ loadFromCloud(function(){showScreen('admin-screen');renderAdmin('dashboard');});
 }else if(loginMode==='user'){
  var uid=document.getElementById('inp-userid').value;
- currentUser=DB.users.find(u=>u.id===uid);
- if(!currentUser){err.textContent='User ID not found';err.classList.remove('hidden');return;}
- document.getElementById('user-name-display').textContent=currentUser.name;
- showScreen('user-screen');renderUser('user-home');
+ err.textContent='Loading data...';err.classList.remove('hidden');
+ loadFromCloud(function(){
+   err.classList.add('hidden');
+   currentUser=DB.users.find(u=>u.id===uid);
+   if(!currentUser){err.textContent='User ID not found';err.classList.remove('hidden');return;}
+   document.getElementById('user-name-display').textContent=currentUser.name;
+   showScreen('user-screen');renderUser('user-home');
+ });
 }else{
  var n=document.getElementById('inp-name').value,p=document.getElementById('inp-phone').value;
  if(!n||!p){err.textContent='Fill all fields';err.classList.remove('hidden');return;}
- var cid=document.getElementById('inp-camp-select').value,cn='General';
- var camp=DB.camps.find(c=>c.id===cid);if(camp)cn=camp.name;
- var u={id:'USER'+(++DB.counters.u),name:n,phone:p,campID:cid||'N/A',campName:cn};
- DB.users.push(u);save();currentUser=u;
- document.getElementById('user-name-display').textContent=u.name;
- toast('Registered! Your ID: '+u.id);showScreen('user-screen');renderUser('user-home');
+ loadFromCloud(function(){
+   var cid=document.getElementById('inp-camp-select').value,cn='General';
+   var camp=DB.camps.find(c=>c.id===cid);if(camp)cn=camp.name;
+   var u={id:'USER'+(++DB.counters.u),name:n,phone:p,campID:cid||'N/A',campName:cn};
+   DB.users.push(u);save();currentUser=u;
+   document.getElementById('user-name-display').textContent=u.name;
+   toast('Registered! Your ID: '+u.id);showScreen('user-screen');renderUser('user-home');
+ });
 }}
 function logout(){showScreen('login-screen');currentUser=null;document.querySelectorAll('input').forEach(i=>i.value='');}
 function closeModal(){document.getElementById('modal-overlay').classList.add('hidden');}
@@ -197,3 +185,8 @@ function submitRequest(){var r={reqID:'REQ'+(++DB.counters.q),userID:currentUser
 function userMyRequests(){var list=DB.requests.filter(r=>r.userID===currentUser.id);var h='<div class="section-header"><h2>📋 My Requests</h2></div>';if(!list.length)return h+'<div class="empty-state"><div class="empty-icon">📋</div><p>No requests yet</p></div>';h+='<table class="data-table"><tr><th>ID</th><th>Resource</th><th>Qty</th><th>Unit</th><th>Status</th><th>Note</th><th>Submitted</th></tr>';list.forEach(r=>{h+='<tr><td>'+r.reqID+'</td><td>'+r.resourceName+'</td><td>'+r.quantity+'</td><td>'+r.unit+'</td><td>'+badge(r.status)+'</td><td>'+r.note+'</td><td>'+r.submitTime+'</td></tr>';});return h+'</table>';}
 function userResources(){var h='<div class="section-header"><h2>📦 Available Resources</h2></div>';if(!DB.resources.length)return h+'<div class="empty-state"><div class="empty-icon">📦</div><p>No resources available</p></div>';h+='<table class="data-table"><tr><th>Name</th><th>Category</th><th>Available</th><th>Unit</th></tr>';DB.resources.filter(r=>r.quantity>0).forEach(r=>{h+='<tr><td>'+r.name+'</td><td>'+r.category+'</td><td style="color:var(--success)">'+r.quantity+'</td><td>'+r.unit+'</td></tr>';});return h+'</table>';}
 function userCampsView(){var h='<div class="section-header"><h2>🏕️ Relief Camps</h2></div>';if(!DB.camps.length)return h+'<div class="empty-state"><div class="empty-icon">🏕️</div><p>No camps</p></div>';h+='<table class="data-table"><tr><th>ID</th><th>Name</th><th>Location</th><th>Population</th><th>Severity</th><th>Disaster</th></tr>';DB.camps.forEach(c=>{h+='<tr><td>'+c.id+'</td><td>'+c.name+'</td><td>'+c.location+', '+c.state+'</td><td>'+c.population+'</td><td>'+badge(sevLabel(c.severity))+'</td><td>'+c.disaster+'</td></tr>';});return h+'</table>';}
+
+// Initialize — load from cloud on page load
+loadFromCloud();
+// Auto-refresh from cloud every 30 seconds
+setInterval(function(){loadFromCloud();},30000);
