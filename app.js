@@ -1,19 +1,42 @@
 // Data
 var DB={resources:[],camps:[],requests:[],allocations:[],volunteers:[],donors:[],donations:[],users:[],counters:{r:0,c:0,q:0,a:0,v:0,d:0,n:0,u:0}};
 var currentUser=null,loginMode='',CLOUD_DB='https://jsonblob.com/api/jsonBlob/019e27ec-bda3-73a3-a0a6-17e16cf2a660';
+var _syncing=false;
 function save(){
   localStorage.setItem('reliefDB',JSON.stringify(DB));
-  fetch(CLOUD_DB,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(DB)}).catch(function(){});
+  if(_syncing)return;_syncing=true;
+  fetch(CLOUD_DB,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(DB)})
+  .then(function(){_syncing=false;})
+  .catch(function(){_syncing=false;setTimeout(function(){
+    fetch(CLOUD_DB,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(DB)}).catch(function(){});
+  },2000);});
 }
 function load(){
   fetch(CLOUD_DB).then(function(r){return r.json();}).then(function(d){
-    if(d&&typeof d==='object'&&d.counters){DB=d;localStorage.setItem('reliefDB',JSON.stringify(DB));}
+    if(d&&typeof d==='object'&&d.counters){
+      DB=d;localStorage.setItem('reliefDB',JSON.stringify(DB));
+      var as=document.getElementById('admin-screen');
+      var us=document.getElementById('user-screen');
+      if(as&&as.classList.contains('active')){renderAdmin('dashboard');}
+      if(us&&us.classList.contains('active')&&currentUser){renderUser('user-home');}
+    }
   }).catch(function(){
     var local=localStorage.getItem('reliefDB');
     if(local){DB=JSON.parse(local);}
   });
 }
 load();
+setInterval(function(){
+  fetch(CLOUD_DB).then(function(r){return r.json();}).then(function(d){
+    if(d&&typeof d==='object'&&d.counters){
+      DB=d;localStorage.setItem('reliefDB',JSON.stringify(DB));
+      var as=document.getElementById('admin-screen');
+      var us=document.getElementById('user-screen');
+      if(as&&as.classList.contains('active')){renderAdmin('dashboard');}
+      if(us&&us.classList.contains('active')&&currentUser){renderUser('user-home');}
+    }
+  }).catch(function(){});
+},30000);
 
 function showScreen(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
 function toast(msg,type){var t=document.getElementById('toast');t.className='toast '+(type||'success');t.textContent=msg;t.classList.remove('hidden');setTimeout(()=>t.classList.add('hidden'),2500);}
