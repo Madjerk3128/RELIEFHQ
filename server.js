@@ -99,18 +99,34 @@ function pushToCloud(data, callback) {
 function startupSync(silent) {
   if (!silent) console.log('[Sync] Checking cloud for newer data...');
   fetchFromCloud((err, cloudData) => {
+    const localData = loadDB();
     if (err || !cloudData || !cloudData.counters) {
-      if (!silent) console.log('[Sync] No cloud data or cloud unreachable. Using local db.json');
+      if (!silent) {
+        console.log('[Sync] Cloud is empty or invalid. Initializing cloud with local db.json...');
+      }
+      pushToCloud(localData, (pushErr) => {
+        if (!pushErr) {
+          if (!silent) console.log('[Sync] ✅ Cloud initialized successfully');
+        } else {
+          if (!silent) console.log('[Sync] ⚠️ Cloud initialization failed:', pushErr.message);
+        }
+      });
       return;
     }
 
-    const localData = loadDB();
     const localTime  = localData._lastSaved ? new Date(localData._lastSaved) : new Date(0);
     const cloudTime  = cloudData._lastSaved  ? new Date(cloudData._lastSaved)  : new Date(0);
 
     if (cloudTime > localTime) {
       saveDB(cloudData);
       console.log('[Sync] ✅ Cloud data was newer → synced to local db.json + Excel');
+    } else if (localTime > cloudTime) {
+      // Local is newer -> push to cloud to keep in sync
+      pushToCloud(localData, (pushErr) => {
+        if (!pushErr) {
+          if (!silent) console.log('[Sync] ✅ Local data is newer -> pushed to cloud');
+        }
+      });
     } else {
       if (!silent) {
         console.log('[Sync] ✅ Local data is up-to-date');
@@ -151,7 +167,7 @@ const server = http.createServer((req, res) => {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin',  '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, bypass-tunnel-reminder');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
   // ── PING (used by app.js to detect local server) ──────────
