@@ -94,6 +94,7 @@ function save() {
     if (_isLocal) {
       fetch(CLOUD_URL, {
         method: 'PUT',
+        cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(DB)
       }).catch(function() {});
@@ -102,7 +103,8 @@ function save() {
 }
 
 function loadFromCloud(callback) {
-  fetch(API_URL).then(function(r) {
+  // cache: 'no-store' prevents browser from returning stale cached responses
+  fetch(API_URL, { cache: 'no-store' }).then(function(r) {
     return r.json();
   }).then(function(d) {
     if (d && typeof d === 'object' && d.counters) {
@@ -114,7 +116,7 @@ function loadFromCloud(callback) {
   }).catch(function() {
     // Fallback: try cloud if local failed
     if (_isLocal) {
-      fetch(CLOUD_URL).then(function(r) { return r.json(); })
+      fetch(CLOUD_URL, { cache: 'no-store' }).then(function(r) { return r.json(); })
         .then(function(d) {
           if (d && d.counters) { DB = d; localStorage.setItem('reliefDB', JSON.stringify(DB)); }
           if (callback) callback(false);
@@ -1756,7 +1758,7 @@ detectServer(function() {
           }
         });
       });
-    }, 10000);
+    }, 2000);
 
     // Re-render active view every 1 second (pure UI refresh, no network)
     setInterval(function() {
