@@ -18,10 +18,53 @@ var currentUser = null;
 var loginMode = '';
 var _cloudReady = false;
 
-// Dynamic API Routing: Local host vs remote JSON Blob
-var API_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.startsWith('192.168.') || window.location.hostname.startsWith('10.')) 
-  ? '/api/data' 
-  : 'https://jsonblob.com/api/jsonBlob/019e27ec-bda3-73a3-a0a6-17e16cf2a660';
+// ── DUAL-SERVER SMART ROUTING ──
+var LOCAL_URL  = 'http://localhost:8080/api/data';
+var PING_URL   = 'http://localhost:8080/api/ping';
+var CLOUD_URL  = 'https://jsonblob.com/api/jsonBlob/019e27ec-bda3-73a3-a0a6-17e16cf2a660';
+var API_URL    = CLOUD_URL;   // default until ping resolves
+var _isLocal   = false;
+
+function updateServerBadges(local) {
+  _isLocal = local;
+  API_URL = local ? LOCAL_URL : CLOUD_URL;
+  var badges = document.querySelectorAll('.server-status-badge');
+  badges.forEach(function(b) {
+    if (local) {
+      b.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse inline-block mr-1"></span> 🟢 Local Server';
+      b.className = b.className.replace(/text-\S+/g, '').replace(/bg-\S+\/10/g, '').replace(/border-\S+\/20/g, '').trim();
+      b.classList.add('text-tertiary', 'bg-tertiary/10', 'border-tertiary/20');
+    } else {
+      b.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse inline-block mr-1"></span> ☁️ Cloud Mode';
+      b.className = b.className.replace(/text-\S+/g, '').replace(/bg-\S+\/10/g, '').replace(/border-\S+\/20/g, '').trim();
+      b.classList.add('text-primary', 'bg-primary/10', 'border-primary/20');
+    }
+  });
+}
+
+// Ping the local server; if alive use local, otherwise use cloud
+function detectServer(callback) {
+  fetch(PING_URL, { method: 'GET', signal: AbortSignal.timeout(1500) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d && d.ok) {
+        updateServerBadges(true);
+        if (callback) callback(true);
+      } else {
+        updateServerBadges(false);
+        if (callback) callback(false);
+      }
+    })
+    .catch(function() {
+      updateServerBadges(false);
+      if (callback) callback(false);
+    });
+}
+
+// Re-check server every 30 seconds (so phone or browser auto-switches when laptop turns on/off)
+setInterval(function() {
+  detectServer(null);
+}, 30000);
 
 // Global filters for lists
 var adminFilters = {
@@ -41,20 +84,20 @@ var paginationState = {
 // ── DATA PERSISTENCE ──
 function save() {
   localStorage.setItem('reliefDB', JSON.stringify(DB));
-  var method = API_URL.includes('jsonblob.com') ? 'PUT' : 'POST';
+  var method = _isLocal ? 'POST' : 'PUT';
   fetch(API_URL, {
     method: method,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(DB)
   }).catch(function() {
-    // Retry once after 3 seconds
-    setTimeout(function() {
-      fetch(API_URL, {
-        method: method,
+    // If local save failed, retry on cloud
+    if (_isLocal) {
+      fetch(CLOUD_URL, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(DB)
       }).catch(function() {});
-    }, 3000);
+    }
   });
 }
 
@@ -69,18 +112,31 @@ function loadFromCloud(callback) {
     }
     if (callback) callback(true);
   }).catch(function() {
-    var local = localStorage.getItem('reliefDB');
-    if (local) {
-      DB = JSON.parse(local);
+    // Fallback: try cloud if local failed
+    if (_isLocal) {
+      fetch(CLOUD_URL).then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d && d.counters) { DB = d; localStorage.setItem('reliefDB', JSON.stringify(DB)); }
+          if (callback) callback(false);
+        }).catch(function() {
+          var local = localStorage.getItem('reliefDB');
+          if (local) DB = JSON.parse(local);
+          if (callback) callback(false);
+        });
+    } else {
+      var local = localStorage.getItem('reliefDB');
+      if (local) DB = JSON.parse(local);
+      if (callback) callback(false);
     }
-    if (callback) callback(false);
   });
 }
 
 function resetLocalData() {
   localStorage.removeItem('reliefDB');
-  loadFromCloud(function() {
-    toast('Data refreshed from cloud!', 'success');
+  detectServer(function() {
+    loadFromCloud(function() {
+      toast('Data refreshed from ' + (_isLocal ? 'Local Server' : 'Cloud') + '!', 'success');
+    });
   });
 }
 
@@ -1680,22 +1736,26 @@ function userCampsViewTemplate() {
 
 
 // ── INITIALIZATION & HEARTBEATS ──
-loadFromCloud(function() {
-  // Sync periodically every 20 seconds
-  setInterval(function() {
-    loadFromCloud(function() {
-      // Proactively refresh active view to display real-time updates
-      var activeAdminNav = document.querySelector('.admin-nav-btn.active');
-      if (activeAdminNav) {
-        var viewMatches = activeAdminNav.getAttribute('onclick').match(/'([^']+)'/);
-        if (viewMatches && viewMatches[1]) renderAdmin(viewMatches[1]);
-      }
-      
-      var activeUserNav = document.querySelector('.user-nav-btn.active');
-      if (activeUserNav) {
-        var uViewMatches = activeUserNav.getAttribute('onclick').match(/'([^']+)'/);
-        if (uViewMatches && uViewMatches[1]) renderUser(uViewMatches[1]);
-      }
-    });
-  }, 20000);
+// 1. Ping local server first, then load data from the correct source
+detectServer(function() {
+  loadFromCloud(function() {
+    // Sync + re-check server every 20 seconds
+    setInterval(function() {
+      detectServer(function() {
+        loadFromCloud(function() {
+          // Proactively refresh active view to display real-time updates
+          var activeAdminNav = document.querySelector('.admin-nav-btn.active');
+          if (activeAdminNav) {
+            var viewMatches = activeAdminNav.getAttribute('onclick').match(/'([^']+)'/);
+            if (viewMatches && viewMatches[1]) renderAdmin(viewMatches[1]);
+          }
+          var activeUserNav = document.querySelector('.user-nav-btn.active');
+          if (activeUserNav) {
+            var uViewMatches = activeUserNav.getAttribute('onclick').match(/'([^']+)'/);
+            if (uViewMatches && uViewMatches[1]) renderUser(uViewMatches[1]);
+          }
+        });
+      });
+    }, 20000);
+  });
 });

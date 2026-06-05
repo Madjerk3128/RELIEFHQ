@@ -1,46 +1,213 @@
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
-const PORT = 8080;
+const http  = require('http');
+const https = require('https');
+const fs    = require('fs');
+const path  = require('path');
+
+const PORT      = 8080;
 const DATA_FILE = path.join(__dirname, 'db.json');
+const EXCEL_FILE = path.join(__dirname, 'ReliefHQ_Data.xlsx');
 
-// Default empty DB
-const DEFAULT_DB = {resources:[],camps:[],requests:[],allocations:[],volunteers:[],donors:[],donations:[],users:[],counters:{r:0,c:0,q:0,a:0,v:0,d:0,n:0,u:0}};
+// JSONBlob cloud backup URL
+const JSONBLOB_URL = 'https://jsonblob.com/api/jsonBlob/019e27ec-bda3-73a3-a0a6-17e16cf2a660';
 
+// Default empty DB structure
+const DEFAULT_DB = {
+  resources:[], camps:[], requests:[], allocations:[],
+  volunteers:[], donors:[], donations:[], users:[],
+  counters:{r:0,c:0,q:0,a:0,v:0,d:0,n:0,u:0},
+  _lastSaved: null
+};
+
+// ─── DB helpers ───────────────────────────────────────────────
 function loadDB() {
-  try { return JSON.parse(fs.readFileSync(DATA_FILE,'utf8')); }
-  catch(e) { fs.writeFileSync(DATA_FILE, JSON.stringify(DEFAULT_DB)); return DEFAULT_DB; }
+  try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); }
+  catch(e) { fs.writeFileSync(DATA_FILE, JSON.stringify(DEFAULT_DB, null, 2)); return DEFAULT_DB; }
 }
-function saveDB(data) { fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2)); }
 
-const MIME = {'.html':'text/html','.css':'text/css','.js':'application/javascript','.json':'application/json','.png':'image/png','.ico':'image/x-icon'};
+function saveDB(data) {
+  data._lastSaved = new Date().toISOString();
+  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+  exportToExcel(data);   // auto-export Excel on every save
+}
 
+// ─── Excel Export ─────────────────────────────────────────────
+function exportToExcel(db) {
+  try {
+    const xlsx = require('xlsx');
+
+    function toSheet(arr) {
+      if (!arr || arr.length === 0) return xlsx.utils.aoa_to_sheet([['No data yet']]);
+      return xlsx.utils.json_to_sheet(arr);
+    }
+
+    const wb = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(wb, toSheet(db.resources),    'Resources');
+    xlsx.utils.book_append_sheet(wb, toSheet(db.camps),        'Relief Camps');
+    xlsx.utils.book_append_sheet(wb, toSheet(db.requests),     'Supply Requests');
+    xlsx.utils.book_append_sheet(wb, toSheet(db.allocations),  'Allocations');
+    xlsx.utils.book_append_sheet(wb, toSheet(db.volunteers),   'Volunteers');
+    xlsx.utils.book_append_sheet(wb, toSheet(db.donors),       'Donors');
+    xlsx.utils.book_append_sheet(wb, toSheet(db.users),        'Representatives');
+
+    xlsx.writeFile(wb, EXCEL_FILE);
+    console.log('[Excel] Updated → ' + EXCEL_FILE);
+  } catch(e) {
+    if (e.code === 'MODULE_NOT_FOUND') {
+      console.log('[Excel] xlsx not installed yet. Run: npm install xlsx');
+    } else {
+      console.log('[Excel] Export error:', e.message);
+    }
+  }
+}
+
+// ─── JSONBlob cloud sync helpers ──────────────────────────────
+function fetchFromCloud(callback) {
+  const url = new URL(JSONBLOB_URL);
+  const options = { hostname: url.hostname, path: url.pathname, method: 'GET',
+    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' } };
+
+  const req = https.request(options, (res) => {
+    let body = '';
+    res.on('data', c => body += c);
+    res.on('end', () => {
+      try { callback(null, JSON.parse(body)); }
+      catch(e) { callback(e, null); }
+    });
+  });
+  req.on('error', callback);
+  req.end();
+}
+
+function pushToCloud(data, callback) {
+  const body = JSON.stringify(data);
+  const url  = new URL(JSONBLOB_URL);
+  const options = { hostname: url.hostname, path: url.pathname, method: 'PUT',
+    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json',
+               'Content-Length': Buffer.byteLength(body) } };
+
+  const req = https.request(options, (res) => {
+    let b = '';
+    res.on('data', c => b += c);
+    res.on('end', () => { if (callback) callback(null, res.statusCode); });
+  });
+  req.on('error', (e) => { if (callback) callback(e); });
+  req.write(body);
+  req.end();
+}
+
+// ─── Startup: sync from cloud if cloud is newer ───────────────
+function startupSync() {
+  console.log('[Sync] Checking cloud for newer data...');
+  fetchFromCloud((err, cloudData) => {
+    if (err || !cloudData || !cloudData.counters) {
+      console.log('[Sync] No cloud data or cloud unreachable. Using local db.json');
+      return;
+    }
+
+    const localData = loadDB();
+    const localTime  = localData._lastSaved ? new Date(localData._lastSaved) : new Date(0);
+    const cloudTime  = cloudData._lastSaved  ? new Date(cloudData._lastSaved)  : new Date(0);
+
+    if (cloudTime > localTime) {
+      saveDB(cloudData);
+      console.log('[Sync] ✅ Cloud data was newer → synced to local db.json + Excel');
+    } else {
+      console.log('[Sync] ✅ Local data is up-to-date');
+      // Still export Excel on startup
+      exportToExcel(localData);
+    }
+  });
+}
+
+// ─── Shutdown: push local data to cloud ───────────────────────
+function shutdownSync(exitCode) {
+  console.log('\n[Shutdown] Pushing local data to cloud backup...');
+  const data = loadDB();
+  pushToCloud(data, (err, status) => {
+    if (err) {
+      console.log('[Shutdown] ⚠️  Cloud push failed:', err.message);
+    } else {
+      console.log('[Shutdown] ✅ Data backed up to cloud (HTTP ' + status + ')');
+    }
+    process.exit(exitCode || 0);
+  });
+}
+
+// Intercept graceful shutdowns
+process.on('SIGINT',  () => shutdownSync(0));
+process.on('SIGTERM', () => shutdownSync(0));
+
+// ─── MIME types ───────────────────────────────────────────────
+const MIME = {
+  '.html':'text/html', '.css':'text/css', '.js':'application/javascript',
+  '.json':'application/json', '.png':'image/png', '.ico':'image/x-icon',
+  '.xlsx':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+};
+
+// ─── HTTP Server ──────────────────────────────────────────────
 const server = http.createServer((req, res) => {
-  // CORS headers for any origin
-  res.setHeader('Access-Control-Allow-Origin','*');
-  res.setHeader('Access-Control-Allow-Methods','GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers','Content-Type');
+  // CORS headers
+  res.setHeader('Access-Control-Allow-Origin',  '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
-  // API: GET data
+  // ── PING (used by app.js to detect local server) ──────────
+  if (req.url === '/api/ping' && req.method === 'GET') {
+    res.writeHead(200, {'Content-Type': 'application/json'});
+    res.end(JSON.stringify({ ok: true, mode: 'local', time: new Date().toISOString() }));
+    return;
+  }
+
+  // ── GET /api/data ──────────────────────────────────────────
   if (req.url === '/api/data' && req.method === 'GET') {
-    var db = loadDB();
-    res.writeHead(200, {'Content-Type':'application/json'});
+    const db = loadDB();
+    res.writeHead(200, {'Content-Type': 'application/json'});
     res.end(JSON.stringify(db));
     return;
   }
-  // API: POST data (save)
+
+  // ── POST /api/data (save + export Excel + mirror to cloud) ─
   if (req.url === '/api/data' && req.method === 'POST') {
     let body = '';
     req.on('data', c => body += c);
     req.on('end', () => {
-      try { saveDB(JSON.parse(body)); res.writeHead(200); res.end('OK'); }
-      catch(e) { res.writeHead(400); res.end('Bad JSON'); }
+      try {
+        const data = JSON.parse(body);
+        saveDB(data);
+
+        // Mirror to JSONBlob in background (non-blocking)
+        pushToCloud(data, (err) => {
+          if (err) console.log('[Cloud] Mirror failed:', err.message);
+          else     console.log('[Cloud] ✅ Mirrored to JSONBlob');
+        });
+
+        res.writeHead(200, {'Content-Type': 'application/json'});
+        res.end(JSON.stringify({ ok: true }));
+      } catch(e) {
+        res.writeHead(400);
+        res.end('Bad JSON');
+      }
     });
     return;
   }
 
-  // Serve static files
+  // ── Download Excel file ────────────────────────────────────
+  if (req.url === '/api/export-excel' && req.method === 'GET') {
+    if (!fs.existsSync(EXCEL_FILE)) {
+      res.writeHead(404);
+      res.end('Excel file not generated yet. Save some data first.');
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="ReliefHQ_Data.xlsx"'
+    });
+    fs.createReadStream(EXCEL_FILE).pipe(res);
+    return;
+  }
+
+  // ── Serve static files ─────────────────────────────────────
   let filePath = req.url === '/' ? '/index.html' : req.url;
   filePath = path.join(__dirname, filePath);
   const ext = path.extname(filePath);
@@ -51,12 +218,13 @@ const server = http.createServer((req, res) => {
   });
 });
 
+// ─── Start ────────────────────────────────────────────────────
 server.listen(PORT, '0.0.0.0', () => {
   console.log('\n===========================================');
-  console.log('  DISASTER RELIEF SERVER RUNNING');
+  console.log('  RELIEFHQ DUAL-SERVER RUNNING');
   console.log('===========================================');
   console.log('  Local:   http://localhost:' + PORT);
-  // Show all local IPs
+
   const nets = require('os').networkInterfaces();
   for (const name of Object.keys(nets)) {
     for (const net of nets[name]) {
@@ -65,7 +233,12 @@ server.listen(PORT, '0.0.0.0', () => {
       }
     }
   }
-  console.log('\n  Waiting for tunnel...');
+  console.log('  Excel:   ' + EXCEL_FILE);
+  console.log('  Cloud:   JSONBlob backup active');
+  console.log('===========================================\n');
+
+  // Sync from cloud on startup
+  startupSync();
 });
 
 // Auto-start localtunnel for public URL
@@ -73,14 +246,11 @@ try {
   const lt = require('localtunnel');
   (async () => {
     const tunnel = await lt({ port: PORT });
-    console.log('\n  ★ PUBLIC URL (share this with phones):');
+    console.log('\n  ★ PUBLIC URL (share with phones):');
     console.log('  ★ ' + tunnel.url);
-    console.log('\n  Anyone with this URL can access the app!');
     console.log('===========================================\n');
     tunnel.on('close', () => console.log('Tunnel closed'));
   })();
 } catch(e) {
-  console.log('\n  localtunnel not installed. Run:');
-  console.log('  npm install localtunnel');
-  console.log('  Then restart the server.\n');
+  console.log('  (localtunnel not installed — using GitHub Pages for phone access)\n');
 }

@@ -182,14 +182,14 @@
         <!-- System Status Footer -->
         <footer class="mt-16 flex flex-col items-center gap-4 text-on-surface-variant opacity-60">
           <div class="flex items-center gap-6 font-label-sm">
-            <span class="flex items-center gap-2">
-              <span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse"></span>
-              Systems Operational
+            <span class="flex items-center gap-2 server-status-badge">
+              <span class="w-1.5 h-1.5 rounded-full bg-outline animate-pulse"></span>
+              Checking Server...
             </span>
             <span>•</span>
             <span>v2.4.0 Secure Access</span>
           </div>
-          <p><a href="#" onclick="resetLocalData();return false;" class="text-outline text-xs hover:underline flex items-center gap-1">🔄 Refresh Data from Cloud</a></p>
+          <p><a href="#" onclick="resetLocalData();return false;" class="text-outline text-xs hover:underline flex items-center gap-1">🔄 Reset Local Data</a></p>
         </footer>
       </div>
 
@@ -387,6 +387,7 @@
             <span id="admin-notif-badge" class="absolute -top-1 -right-1 w-2 h-2 bg-error rounded-full ring-2 ring-surface hidden"></span>
           </div>
           <div class="flex items-center gap-3 ml-2 pl-4 border-l border-white/10">
+            <span class="server-status-badge font-label-md text-label-md text-outline bg-outline/10 px-3 py-1 rounded-full border border-outline/20">Checking Server...</span>
             <span class="font-label-md text-label-md text-primary bg-primary/10 px-3 py-1 rounded-full border border-primary/20">ADMIN</span>
           </div>
         </div>
@@ -454,6 +455,7 @@
         </div>
         <div class="flex items-center gap-4">
           <div class="flex items-center gap-3 ml-2 pl-4 border-l border-white/10">
+            <span class="server-status-badge font-label-md text-label-md text-outline bg-outline/10 px-3 py-1 rounded-full border border-outline/20">Checking Server...</span>
             <span class="font-label-md text-label-md text-tertiary bg-tertiary/10 px-3 py-1 rounded-full border border-tertiary/20">REPRESENTATIVE</span>
           </div>
         </div>
