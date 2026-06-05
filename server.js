@@ -8,7 +8,7 @@ const DATA_FILE = path.join(__dirname, 'db.json');
 const EXCEL_FILE = path.join(__dirname, 'ReliefHQ_Data.xlsx');
 
 // JSONBlob cloud backup URL
-const JSONBLOB_URL = 'https://jsonblob.com/api/jsonBlob/019e27ec-bda3-73a3-a0a6-17e16cf2a660';
+const JSONBLOB_URL = 'https://jsonblob.com/api/jsonBlob/019e9925-9eaa-751e-845b-d60dcea0edb3';
 
 // Default empty DB structure
 const DEFAULT_DB = {
@@ -96,11 +96,11 @@ function pushToCloud(data, callback) {
 }
 
 // ─── Startup: sync from cloud if cloud is newer ───────────────
-function startupSync() {
-  console.log('[Sync] Checking cloud for newer data...');
+function startupSync(silent) {
+  if (!silent) console.log('[Sync] Checking cloud for newer data...');
   fetchFromCloud((err, cloudData) => {
     if (err || !cloudData || !cloudData.counters) {
-      console.log('[Sync] No cloud data or cloud unreachable. Using local db.json');
+      if (!silent) console.log('[Sync] No cloud data or cloud unreachable. Using local db.json');
       return;
     }
 
@@ -112,9 +112,11 @@ function startupSync() {
       saveDB(cloudData);
       console.log('[Sync] ✅ Cloud data was newer → synced to local db.json + Excel');
     } else {
-      console.log('[Sync] ✅ Local data is up-to-date');
-      // Still export Excel on startup
-      exportToExcel(localData);
+      if (!silent) {
+        console.log('[Sync] ✅ Local data is up-to-date');
+        // Still export Excel on startup
+        exportToExcel(localData);
+      }
     }
   });
 }
@@ -239,18 +241,39 @@ server.listen(PORT, '0.0.0.0', () => {
 
   // Sync from cloud on startup
   startupSync();
+  
+  // Poll cloud every 5 seconds for updates (for cross-device real-time sync)
+  setInterval(() => startupSync(true), 5000);
 });
 
-// Auto-start localtunnel for public URL
+// Auto-start localtunnel with fixed subdomain so phones can reach this server
+var TUNNEL_URL = null;
 try {
   const lt = require('localtunnel');
   (async () => {
-    const tunnel = await lt({ port: PORT });
-    console.log('\n  ★ PUBLIC URL (share with phones):');
-    console.log('  ★ ' + tunnel.url);
-    console.log('===========================================\n');
-    tunnel.on('close', () => console.log('Tunnel closed'));
+    try {
+      const tunnel = await lt({ port: PORT, subdomain: 'reliefhq-madjerk' });
+      TUNNEL_URL = tunnel.url;
+      console.log('\n  ★ PUBLIC URL — Share with phones & other devices:');
+      console.log('  ★ ' + tunnel.url);
+      console.log('\n  All devices use this laptop as the data source!');
+      console.log('===========================================\n');
+      tunnel.on('close', () => { TUNNEL_URL = null; console.log('Tunnel closed'); });
+    } catch(e) {
+      // Subdomain taken — try without fixed subdomain
+      try {
+        const lt2 = require('localtunnel');
+        const tunnel2 = await lt2({ port: PORT });
+        TUNNEL_URL = tunnel2.url;
+        console.log('\n  ★ PUBLIC URL (random):');
+        console.log('  ★ ' + tunnel2.url);
+        console.log('===========================================\n');
+        tunnel2.on('close', () => { TUNNEL_URL = null; });
+      } catch(e2) {
+        console.log('  (Tunnel unavailable — phones use JSONBlob fallback)\n');
+      }
+    }
   })();
 } catch(e) {
-  console.log('  (localtunnel not installed — using GitHub Pages for phone access)\n');
+  console.log('  (localtunnel not available)\n');
 }

@@ -21,7 +21,7 @@ var _cloudReady = false;
 // ── DUAL-SERVER SMART ROUTING ──
 var LOCAL_URL  = 'http://localhost:8080/api/data';
 var PING_URL   = 'http://localhost:8080/api/ping';
-var CLOUD_URL  = 'https://jsonblob.com/api/jsonBlob/019e27ec-bda3-73a3-a0a6-17e16cf2a660';
+var CLOUD_URL  = 'https://jsonblob.com/api/jsonBlob/019e9925-9eaa-751e-845b-d60dcea0edb3';
 var API_URL    = CLOUD_URL;   // default until ping resolves
 var _isLocal   = false;
 
@@ -83,6 +83,7 @@ var paginationState = {
 
 // ── DATA PERSISTENCE ──
 function save() {
+  DB._lastSaved = new Date().toISOString();
   localStorage.setItem('reliefDB', JSON.stringify(DB));
   var method = _isLocal ? 'POST' : 'PUT';
   fetch(API_URL, {
