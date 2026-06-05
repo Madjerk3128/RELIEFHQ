@@ -19,52 +19,78 @@ var loginMode = '';
 var _cloudReady = false;
 
 // ── DUAL-SERVER SMART ROUTING ──
-var LOCAL_URL  = 'http://localhost:8080/api/data';
-var PING_URL   = 'http://localhost:8080/api/ping';
-var CLOUD_URL  = 'https://jsonblob.com/api/jsonBlob/019e9925-9eaa-751e-845b-d60dcea0edb3';
-var API_URL    = CLOUD_URL;   // default until ping resolves
-var _isLocal   = false;
+var LOCAL_URL   = 'http://localhost:8080/api/data';
+var PING_URL    = 'http://localhost:8080/api/ping';
+var TUNNEL_URL  = 'https://reliefhq-madjerk.loca.lt/api/data';
+var TUNNEL_PING = 'https://reliefhq-madjerk.loca.lt/api/ping';
+var CLOUD_URL   = 'https://jsonblob.com/api/jsonBlob/019e9925-9eaa-751e-845b-d60dcea0edb3';
+var API_URL     = CLOUD_URL;
+var _isLocal    = false;
 
-function updateServerBadges(local) {
-  _isLocal = local;
-  API_URL = local ? LOCAL_URL : CLOUD_URL;
+function updateServerBadges(mode) {
   var badges = document.querySelectorAll('.server-status-badge');
-  badges.forEach(function(b) {
-    if (local) {
+  if (mode === 'local') {
+    _isLocal = true;
+    API_URL = LOCAL_URL;
+    badges.forEach(function(b) {
       b.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse inline-block mr-1"></span> 🟢 Local Server';
       b.className = b.className.replace(/text-\S+/g, '').replace(/bg-\S+\/10/g, '').replace(/border-\S+\/20/g, '').trim();
       b.classList.add('text-tertiary', 'bg-tertiary/10', 'border-tertiary/20');
-    } else {
+    });
+  } else if (mode === 'tunnel') {
+    _isLocal = true; // behaves as local (saves to laptop)
+    API_URL = TUNNEL_URL;
+    badges.forEach(function(b) {
+      b.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-tertiary animate-pulse inline-block mr-1"></span> ⚡ Public Tunnel';
+      b.className = b.className.replace(/text-\S+/g, '').replace(/bg-\S+\/10/g, '').replace(/border-\S+\/20/g, '').trim();
+      b.classList.add('text-tertiary', 'bg-tertiary/10', 'border-tertiary/20');
+    });
+  } else {
+    _isLocal = false;
+    API_URL = CLOUD_URL;
+    badges.forEach(function(b) {
       b.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse inline-block mr-1"></span> ☁️ Cloud Mode';
       b.className = b.className.replace(/text-\S+/g, '').replace(/bg-\S+\/10/g, '').replace(/border-\S+\/20/g, '').trim();
       b.classList.add('text-primary', 'bg-primary/10', 'border-primary/20');
-    }
-  });
+    });
+  }
 }
 
-// Ping the local server; if alive use local, otherwise use cloud
 function detectServer(callback) {
-  fetch(PING_URL, { method: 'GET', signal: AbortSignal.timeout(1500) })
+  // 1. Try localhost first
+  fetch(PING_URL, { method: 'GET', signal: AbortSignal.timeout(1200) })
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d && d.ok) {
-        updateServerBadges(true);
-        if (callback) callback(true);
+        updateServerBadges('local');
+        if (callback) callback('local');
       } else {
-        updateServerBadges(false);
-        if (callback) callback(false);
+        throw new Error();
       }
     })
     .catch(function() {
-      updateServerBadges(false);
-      if (callback) callback(false);
+      // 2. Try public tunnel second (with bypass header)
+      fetch(TUNNEL_PING, { 
+        method: 'GET', 
+        headers: { 'bypass-tunnel-reminder': 'true' },
+        signal: AbortSignal.timeout(1800) 
+      })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d && d.ok) {
+            updateServerBadges('tunnel');
+            if (callback) callback('tunnel');
+          } else {
+            throw new Error();
+          }
+        })
+        .catch(function() {
+          // 3. Fallback to Cloud Mode
+          updateServerBadges('cloud');
+          if (callback) callback('cloud');
+        });
     });
 }
-
-// Re-check server every 30 seconds (so phone or browser auto-switches when laptop turns on/off)
-setInterval(function() {
-  detectServer(null);
-}, 30000);
 
 // Global filters for lists
 var adminFilters = {
@@ -85,10 +111,16 @@ var paginationState = {
 function save() {
   DB._lastSaved = new Date().toISOString();
   localStorage.setItem('reliefDB', JSON.stringify(DB));
+  
   var method = _isLocal ? 'POST' : 'PUT';
+  var headers = { 'Content-Type': 'application/json' };
+  if (API_URL.includes('loca.lt')) {
+    headers['bypass-tunnel-reminder'] = 'true';
+  }
+  
   fetch(API_URL, {
     method: method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: headers,
     body: JSON.stringify(DB)
   }).catch(function() {
     // If local save failed, retry on cloud
@@ -104,8 +136,13 @@ function save() {
 }
 
 function loadFromCloud(callback) {
+  var headers = {};
+  if (API_URL.includes('loca.lt')) {
+    headers['bypass-tunnel-reminder'] = 'true';
+  }
+  
   // cache: 'no-store' prevents browser from returning stale cached responses
-  fetch(API_URL, { cache: 'no-store' }).then(function(r) {
+  fetch(API_URL, { cache: 'no-store', headers: headers }).then(function(r) {
     return r.json();
   }).then(function(d) {
     if (d && typeof d === 'object' && d.counters) {
