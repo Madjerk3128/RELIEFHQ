@@ -1756,6 +1756,23 @@ detectServer(function() {
           }
         });
       });
-    }, 20000);
+    }, 10000);
+
+    // Re-render active view every 1 second (pure UI refresh, no network)
+    setInterval(function() {
+      var activeAdminNav = document.querySelector('.admin-nav-btn.active');
+      if (activeAdminNav) {
+        var viewMatches = activeAdminNav.getAttribute('onclick').match(/'([^']+)'/);
+        if (viewMatches && viewMatches[1]) renderAdmin(viewMatches[1]);
+      }
+      var activeUserNav = document.querySelector('.user-nav-btn.active');
+      if (activeUserNav) {
+        var uViewMatches = activeUserNav.getAttribute('onclick').match(/'([^']+)'/);
+        if (uViewMatches && uViewMatches[1]) renderUser(uViewMatches[1]);
+      }
+    }, 1000);
+
+    // Re-check server mode every 5 seconds
+    setInterval(function() { detectServer(null); }, 5000);
   });
 });
