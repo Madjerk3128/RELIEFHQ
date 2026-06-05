@@ -107,32 +107,153 @@ var paginationState = {
   resource: { current: 1, limit: 10 }
 };
 
-// ── DATA PERSISTENCE ──
+// ── DATA PERSISTENCE & MERGING ──
+function mergeList(listA, listB, idKey) {
+  var map = {};
+  var a = listA || [];
+  for (var i = 0; i < a.length; i++) {
+    var item = a[i];
+    if (item && item[idKey]) map[item[idKey]] = item;
+  }
+  var b = listB || [];
+  for (var j = 0; j < b.length; j++) {
+    var itemB = b[j];
+    if (itemB && itemB[idKey]) {
+      var existing = map[itemB[idKey]];
+      if (existing) {
+        if (idKey === 'reqID' && existing.status === 'PENDING' && itemB.status !== 'PENDING') {
+          map[itemB[idKey]] = itemB;
+        } else {
+          var mergedItem = {};
+          for (var k in existing) {
+            if (existing.hasOwnProperty(k)) mergedItem[k] = existing[k];
+          }
+          for (var k in itemB) {
+            if (itemB.hasOwnProperty(k)) mergedItem[k] = itemB[k];
+          }
+          map[itemB[idKey]] = mergedItem;
+        }
+      } else {
+        map[itemB[idKey]] = itemB;
+      }
+    }
+  }
+  var result = [];
+  for (var key in map) {
+    if (map.hasOwnProperty(key)) {
+      result.push(map[key]);
+    }
+  }
+  return result;
+}
+
+function mergeDBs(dbA, dbB) {
+  if (!dbA || !dbA.counters) return dbB || DB;
+  if (!dbB || !dbB.counters) return dbA || DB;
+
+  var merged = {
+    resources: mergeList(dbA.resources, dbB.resources, 'id'),
+    camps: mergeList(dbA.camps, dbB.camps, 'id'),
+    requests: mergeList(dbA.requests, dbB.requests, 'reqID'),
+    allocations: mergeList(dbA.allocations, dbB.allocations, 'id'),
+    volunteers: mergeList(dbA.volunteers, dbB.volunteers, 'id'),
+    donors: mergeList(dbA.donors, dbB.donors, 'id'),
+    donations: mergeList(dbA.donations || [], dbB.donations || [], 'id'),
+    users: mergeList(dbA.users, dbB.users, 'id'),
+    counters: {
+      r: Math.max(dbA.counters.r || 0, dbB.counters.r || 0),
+      c: Math.max(dbA.counters.c || 0, dbB.counters.c || 0),
+      q: Math.max(dbA.counters.q || 0, dbB.counters.q || 0),
+      a: Math.max(dbA.counters.a || 0, dbB.counters.a || 0),
+      v: Math.max(dbA.counters.v || 0, dbB.counters.v || 0),
+      d: Math.max(dbA.counters.d || 0, dbB.counters.d || 0),
+      n: Math.max(dbA.counters.n || 0, dbB.counters.n || 0),
+      u: Math.max(dbA.counters.u || 0, dbB.counters.u || 0)
+    },
+    _lastSaved: new Date().toISOString()
+  };
+  return merged;
+}
+
+function generateID(prefix) {
+  var chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  var id = '';
+  var exists = true;
+  var limit = 0;
+  
+  while (exists && limit < 100) {
+    var str = '';
+    for (var i = 0; i < 4; i++) {
+      str += chars[Math.floor(Math.random() * chars.length)];
+    }
+    id = prefix + '_' + str;
+    
+    exists = false;
+    limit++;
+    var list = [];
+    if (prefix === 'RES') list = DB.resources;
+    else if (prefix === 'CAMP') list = DB.camps;
+    else if (prefix === 'REQ') list = DB.requests;
+    else if (prefix === 'ALC') list = DB.allocations;
+    else if (prefix === 'VOL') list = DB.volunteers;
+    else if (prefix === 'DNR') list = DB.donors;
+    else if (prefix === 'USER') list = DB.users;
+    
+    for (var j = 0; j < list.length; j++) {
+      var key = (prefix === 'REQ') ? 'reqID' : 'id';
+      if (list[j] && list[j][key] === id) {
+        exists = true;
+        break;
+      }
+    }
+  }
+  return id;
+}
+
 function save() {
   DB._lastSaved = new Date().toISOString();
   localStorage.setItem('reliefDB', JSON.stringify(DB));
   
-  var method = _isLocal ? 'POST' : 'PUT';
-  var headers = { 'Content-Type': 'application/json' };
-  if (API_URL.includes('loca.lt')) {
-    headers['bypass-tunnel-reminder'] = 'true';
+  if (_isLocal) {
+    var headers = { 'Content-Type': 'application/json' };
+    if (API_URL.includes('loca.lt')) {
+      headers['bypass-tunnel-reminder'] = 'true';
+    }
+    fetch(API_URL, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(DB)
+    }).catch(function() {
+      cloudPutSync();
+    });
+  } else {
+    cloudPutSync();
   }
-  
-  fetch(API_URL, {
-    method: method,
-    headers: headers,
-    body: JSON.stringify(DB)
-  }).catch(function() {
-    // If local save failed, retry on cloud
-    if (_isLocal) {
+}
+
+function cloudPutSync() {
+  fetch(CLOUD_URL, { cache: 'no-store' })
+    .then(function(r) { return r.json(); })
+    .then(function(cloudData) {
+      if (cloudData && cloudData.counters) {
+        var local = localStorage.getItem('reliefDB');
+        var localDB = local ? JSON.parse(local) : DB;
+        DB = mergeDBs(localDB, cloudData);
+        localStorage.setItem('reliefDB', JSON.stringify(DB));
+      }
+      return fetch(CLOUD_URL, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(DB)
+      });
+    })
+    .catch(function() {
       fetch(CLOUD_URL, {
         method: 'PUT',
-        cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(DB)
       }).catch(function() {});
-    }
-  });
+    });
 }
 
 function loadFromCloud(callback) {
@@ -141,22 +262,27 @@ function loadFromCloud(callback) {
     headers['bypass-tunnel-reminder'] = 'true';
   }
   
-  // cache: 'no-store' prevents browser from returning stale cached responses
   fetch(API_URL, { cache: 'no-store', headers: headers }).then(function(r) {
     return r.json();
   }).then(function(d) {
     if (d && typeof d === 'object' && d.counters) {
-      DB = d;
+      var local = localStorage.getItem('reliefDB');
+      var localDB = local ? JSON.parse(local) : DB;
+      DB = mergeDBs(localDB, d);
       localStorage.setItem('reliefDB', JSON.stringify(DB));
       _cloudReady = true;
     }
     if (callback) callback(true);
   }).catch(function() {
-    // Fallback: try cloud if local failed
     if (_isLocal) {
       fetch(CLOUD_URL, { cache: 'no-store' }).then(function(r) { return r.json(); })
         .then(function(d) {
-          if (d && d.counters) { DB = d; localStorage.setItem('reliefDB', JSON.stringify(DB)); }
+          if (d && d.counters) {
+            var local = localStorage.getItem('reliefDB');
+            var localDB = local ? JSON.parse(local) : DB;
+            DB = mergeDBs(localDB, d);
+            localStorage.setItem('reliefDB', JSON.stringify(DB));
+          }
           if (callback) callback(false);
         }).catch(function() {
           var local = localStorage.getItem('reliefDB');
@@ -306,7 +432,7 @@ function handleLogin(mode) {
     
     loadFromCloud(function() {
       // Create new camp
-      var campID = 'CAMP' + (++DB.counters.c);
+      var campID = generateID('CAMP');
       var c = {
         id: campID,
         name: cname,
@@ -322,7 +448,7 @@ function handleLogin(mode) {
       DB.camps.push(c);
       
       // Create new representative user
-      var userID = 'USER' + (++DB.counters.u);
+      var userID = generateID('USER');
       var u = {
         id: userID,
         name: name,
@@ -437,7 +563,7 @@ function adminNav(btn, view) {
   document.querySelectorAll('.admin-nav-btn').forEach(function(b) {
     b.className = 'w-full flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-white/5 transition-all rounded-lg group text-left admin-nav-btn';
   });
-  btn.className = 'w-full flex items-center gap-3 px-4 py-3 text-primary bg-primary/10 border-r-4 border-primary transition-all rounded-lg group text-left admin-nav-btn font-semibold';
+  btn.className = 'w-full flex items-center gap-3 px-4 py-3 text-primary bg-primary/10 border-r-4 border-primary transition-all rounded-lg group text-left admin-nav-btn font-semibold active';
   
   // Set View Title
   var titles = {
@@ -1118,7 +1244,7 @@ function addResource() {
   }
   
   var r = {
-    id: 'RES' + (++DB.counters.r),
+    id: generateID('RES'),
     name: n,
     category: cat,
     quantity: qty || 0,
@@ -1217,7 +1343,7 @@ function addCamp() {
   }
   
   var c = {
-    id: 'CAMP' + (++DB.counters.c),
+    id: generateID('CAMP'),
     name: name,
     location: loc || 'N/A',
     state: state || 'N/A',
@@ -1318,7 +1444,7 @@ function approveReq(i) {
   r.note = 'Dispatched ' + qty + ' ' + res.unit + ' of ' + res.name + (note ? ' — ' + note : '');
   
   var a = {
-    id: 'ALLOC' + (++DB.counters.a),
+    id: generateID('ALLOC'),
     campID: r.campID,
     campName: r.campName,
     resourceID: res.id,
@@ -1376,7 +1502,7 @@ function addVolunteer() {
   }
   
   var v = {
-    id: 'VOL' + (++DB.counters.v),
+    id: generateID('VOL'),
     name: n,
     skill: skill,
     contact: contact || 'N/A',
@@ -1422,7 +1548,7 @@ function addDonor() {
   }
   
   var d = {
-    id: 'DNR' + (++DB.counters.d),
+    id: generateID('DNR'),
     name: name,
     org: org || 'NGO/Individual',
     contact: contact || 'N/A',
@@ -1442,7 +1568,7 @@ function userNav(btn, view) {
   document.querySelectorAll('.user-nav-btn').forEach(function(b) {
     b.className = 'w-full flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-white/5 transition-all rounded-lg group text-left user-nav-btn';
   });
-  btn.className = 'w-full flex items-center gap-3 px-4 py-3 text-tertiary bg-tertiary/10 border-r-4 border-tertiary transition-all rounded-lg group text-left user-nav-btn font-semibold';
+  btn.className = 'w-full flex items-center gap-3 px-4 py-3 text-tertiary bg-tertiary/10 border-r-4 border-tertiary transition-all rounded-lg group text-left user-nav-btn font-semibold active';
   renderUser(view);
 }
 
@@ -1622,7 +1748,7 @@ function submitRequest() {
   }
 
   var r = {
-    reqID: 'REQ' + (++DB.counters.q),
+    reqID: generateID('REQ'),
     userID: currentUser.id,
     userName: currentUser.name,
     campID: currentUser.campID,

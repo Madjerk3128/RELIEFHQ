@@ -30,6 +30,56 @@ function saveDB(data) {
   exportToExcel(data);   // auto-export Excel on every save
 }
 
+function mergeList(listA, listB, idKey) {
+  const map = {};
+  (listA || []).forEach(item => {
+    if (item && item[idKey]) map[item[idKey]] = item;
+  });
+  (listB || []).forEach(item => {
+    if (item && item[idKey]) {
+      const existing = map[item[idKey]];
+      if (existing) {
+        if (idKey === 'reqID' && existing.status === 'PENDING' && item.status !== 'PENDING') {
+          map[item[idKey]] = item;
+        } else {
+          map[item[idKey]] = Object.assign({}, existing, item);
+        }
+      } else {
+        map[item[idKey]] = item;
+      }
+    }
+  });
+  return Object.keys(map).map(k => map[k]);
+}
+
+function mergeDBs(dbA, dbB) {
+  if (!dbA || !dbA.counters) return dbB || DEFAULT_DB;
+  if (!dbB || !dbB.counters) return dbA || DEFAULT_DB;
+
+  const merged = {
+    resources: mergeList(dbA.resources, dbB.resources, 'id'),
+    camps: mergeList(dbA.camps, dbB.camps, 'id'),
+    requests: mergeList(dbA.requests, dbB.requests, 'reqID'),
+    allocations: mergeList(dbA.allocations, dbB.allocations, 'id'),
+    volunteers: mergeList(dbA.volunteers, dbB.volunteers, 'id'),
+    donors: mergeList(dbA.donors, dbB.donors, 'id'),
+    donations: mergeList(dbA.donations || [], dbB.donations || [], 'id'),
+    users: mergeList(dbA.users, dbB.users, 'id'),
+    counters: {
+      r: Math.max(dbA.counters.r || 0, dbB.counters.r || 0),
+      c: Math.max(dbA.counters.c || 0, dbB.counters.c || 0),
+      q: Math.max(dbA.counters.q || 0, dbB.counters.q || 0),
+      a: Math.max(dbA.counters.a || 0, dbB.counters.a || 0),
+      v: Math.max(dbA.counters.v || 0, dbB.counters.v || 0),
+      d: Math.max(dbA.counters.d || 0, dbB.counters.d || 0),
+      n: Math.max(dbA.counters.n || 0, dbB.counters.n || 0),
+      u: Math.max(dbA.counters.u || 0, dbB.counters.u || 0)
+    },
+    _lastSaved: new Date().toISOString()
+  };
+  return merged;
+}
+
 // ─── Excel Export ─────────────────────────────────────────────
 function exportToExcel(db) {
   try {
@@ -118,19 +168,23 @@ function startupSync(silent) {
     const cloudTime  = cloudData._lastSaved  ? new Date(cloudData._lastSaved)  : new Date(0);
 
     if (cloudTime > localTime) {
-      saveDB(cloudData);
-      console.log('[Sync] ✅ Cloud data was newer → synced to local db.json + Excel');
+      const merged = mergeDBs(localData, cloudData);
+      saveDB(merged);
+      console.log('[Sync] ✅ Cloud data was newer → merged cloud with local db.json + Excel');
+      pushToCloud(merged, (pushErr) => {
+        if (!pushErr && !silent) console.log('[Sync] ✅ Pushed merged data to cloud');
+      });
     } else if (localTime > cloudTime) {
-      // Local is newer -> push to cloud to keep in sync
-      pushToCloud(localData, (pushErr) => {
+      const merged = mergeDBs(localData, cloudData);
+      saveDB(merged);
+      pushToCloud(merged, (pushErr) => {
         if (!pushErr) {
-          if (!silent) console.log('[Sync] ✅ Local data is newer -> pushed to cloud');
+          if (!silent) console.log('[Sync] ✅ Local data was newer -> pushed merged to cloud');
         }
       });
     } else {
       if (!silent) {
         console.log('[Sync] ✅ Local data is up-to-date');
-        // Still export Excel on startup
         exportToExcel(localData);
       }
     }
@@ -192,10 +246,12 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const data = JSON.parse(body);
-        saveDB(data);
+        const local = loadDB();
+        const merged = mergeDBs(local, data);
+        saveDB(merged);
 
         // Mirror to JSONBlob in background (non-blocking)
-        pushToCloud(data, (err) => {
+        pushToCloud(merged, (err) => {
           if (err) console.log('[Cloud] Mirror failed:', err.message);
           else     console.log('[Cloud] ✅ Mirrored to JSONBlob');
         });

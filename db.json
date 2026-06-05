@@ -1,20 +1,87 @@
 {
-  "resources": [],
-  "camps": [],
-  "requests": [],
+  "resources": [
+    {
+      "id": "RES1",
+      "name": "Rice Bags",
+      "category": "Food",
+      "quantity": 200,
+      "unit": "kg",
+      "threshold": 50,
+      "expiry": "12/2025",
+      "location": "Main Depot"
+    }
+  ],
+  "camps": [
+    {
+      "id": "CAMP1",
+      "name": "East Sector Relief",
+      "location": "East Chennai",
+      "state": "Tamil Nadu",
+      "disaster": "Flood",
+      "population": 300,
+      "severity": 2,
+      "contact": "John Smith",
+      "phone": "9876543210",
+      "date": "05/06/2026 22:49"
+    },
+    {
+      "id": "CAMP2",
+      "name": "41546",
+      "location": "ffag",
+      "state": "rgeag",
+      "disaster": "Flood",
+      "population": 5454,
+      "severity": 2,
+      "contact": "dffgae",
+      "phone": "26162",
+      "date": "06/06/2026 00:45"
+    }
+  ],
+  "requests": [
+    {
+      "reqID": "REQ1",
+      "userID": "USER1",
+      "userName": "John Smith",
+      "campID": "CAMP1",
+      "campName": "East Sector Relief",
+      "resourceName": "Bottled Water",
+      "category": "Water",
+      "quantity": 100,
+      "unit": "boxes",
+      "status": "PENDING",
+      "note": "",
+      "submitTime": "05/06/2026 22:54"
+    }
+  ],
   "allocations": [],
   "volunteers": [],
   "donors": [],
   "donations": [],
-  "users": [],
+  "users": [
+    {
+      "id": "USER1",
+      "name": "John Smith",
+      "phone": "9876543210",
+      "campID": "CAMP1",
+      "campName": "East Sector Relief"
+    },
+    {
+      "id": "USER2",
+      "name": "dffgae",
+      "phone": "26162",
+      "campID": "CAMP2",
+      "campName": "41546"
+    }
+  ],
   "counters": {
-    "r": 0,
-    "c": 0,
-    "q": 0,
+    "r": 1,
+    "c": 2,
+    "q": 1,
     "a": 0,
     "v": 0,
     "d": 0,
     "n": 0,
-    "u": 0
-  }
+    "u": 2
+  },
+  "_lastSaved": "2026-06-05T19:15:04.143Z"
 }
